@@ -1,0 +1,67 @@
+name: Build unsigned iOS IPA
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build GlassVideo for iPhone
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python for app icon generation
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install icon generator dependency
+        run: python -m pip install Pillow
+
+      - name: Generate app icon
+        run: python scripts/generate_icon.py
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build device app without a signing certificate
+        run: |
+          xcodebuild \
+            -project GlassVideo.xcodeproj \
+            -scheme GlassVideo \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          test -d "build/Build/Products/Release-iphoneos/GlassVideo.app"
+          mkdir -p out/Payload
+          ditto "build/Build/Products/Release-iphoneos/GlassVideo.app" "out/Payload/GlassVideo.app"
+          cd out
+          /usr/bin/zip -qry GlassVideo-unsigned.ipa Payload
+          test -s GlassVideo-unsigned.ipa
+          unzip -l GlassVideo-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GlassVideo-unsigned-ipa
+          path: out/GlassVideo-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
